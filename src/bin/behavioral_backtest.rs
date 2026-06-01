@@ -61,7 +61,7 @@ async fn run_named(name: &str, source: &str, candles: Vec<Candle>) -> Result<Bac
     let started = Instant::now();
     let result = run_backtest_internal(strategy, "NIFTY".to_string(), candles, INITIAL_CASH)
         .await
-        .with_context(|| format!("run {name}"))?;
+        .map_err(|error| anyhow::anyhow!("run {name}: {error}"))?;
     print_summary(name, &result, started.elapsed());
     Ok(result)
 }
@@ -125,22 +125,46 @@ fn load_nifty_candles(path: &str) -> Result<Vec<Candle>> {
         if index == 0 || line.trim().is_empty() {
             continue;
         }
-        let fields = line.split_whitespace().collect::<Vec<_>>();
-        anyhow::ensure!(fields.len() == 6, "bad NIFTY candle row {}", index + 1);
-        let datetime = format!("{} {}", fields[0], fields[1]);
-        let timestamp = NaiveDateTime::parse_from_str(&datetime, "%Y-%m-%d %H:%M:%S")?
+        let fields = parse_market_row(&line)
+            .with_context(|| format!("bad NIFTY candle row {}", index + 1))?;
+        let timestamp = NaiveDateTime::parse_from_str(fields[0], "%Y-%m-%d %H:%M:%S")?
             .and_utc()
             .timestamp_millis();
         candles.push(Candle {
             timestamp,
-            open: fields[2].parse::<f64>()?,
-            high: fields[3].parse::<f64>()?,
-            low: fields[4].parse::<f64>()?,
-            close: fields[5].parse::<f64>()?,
+            open: fields[1].parse::<f64>()?,
+            high: fields[2].parse::<f64>()?,
+            low: fields[3].parse::<f64>()?,
+            close: fields[4].parse::<f64>()?,
             volume: 1_000.0,
         });
     }
     Ok(candles)
+}
+
+fn parse_market_row(line: &str) -> Result<Vec<&str>> {
+    let tab_fields = line.split('\t').collect::<Vec<_>>();
+    if tab_fields.len() == 5 {
+        return Ok(tab_fields);
+    }
+
+    let comma_fields = line.split(',').collect::<Vec<_>>();
+    if comma_fields.len() == 5 {
+        return Ok(comma_fields);
+    }
+
+    let whitespace_fields = line.split_whitespace().collect::<Vec<_>>();
+    if whitespace_fields.len() == 6 {
+        return Ok(vec![
+            line.get(0..19).context("missing datetime")?,
+            whitespace_fields[2],
+            whitespace_fields[3],
+            whitespace_fields[4],
+            whitespace_fields[5],
+        ]);
+    }
+
+    anyhow::bail!("expected 5 market columns")
 }
 
 fn candle(timestamp: i64, close: f64) -> Candle {
