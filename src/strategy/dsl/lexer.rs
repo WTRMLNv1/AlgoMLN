@@ -277,6 +277,37 @@ BUY 10
     }
 
     #[test]
+    fn tokenizes_simple_strategy() {
+        let tokens = Lexer::tokenize("WHEN rsi(14) < 30\nBUY 5").unwrap();
+        let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                TokenKind::When,
+                TokenKind::Rsi,
+                TokenKind::LParen,
+                TokenKind::Integer(14),
+                TokenKind::RParen,
+                TokenKind::Lt,
+                TokenKind::Integer(30),
+                TokenKind::Newline,
+                TokenKind::Buy,
+                TokenKind::Integer(5),
+                TokenKind::Newline,
+                TokenKind::Eof,
+            ]
+        );
+    }
+
+    #[test]
+    fn tokenizes_sell_all() {
+        let tokens = Lexer::tokenize("WHEN close > 100\nSELL ALL").unwrap();
+        let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
+        assert!(kinds.contains(&TokenKind::Sell));
+        assert!(kinds.contains(&TokenKind::All));
+    }
+
+    #[test]
     fn errors_on_unknown_character() {
         let err = Lexer::tokenize("WHEN close @ 10\nBUY 1").unwrap_err();
         assert_eq!(err.line, 1);
@@ -286,6 +317,18 @@ BUY 10
     #[test]
     fn skips_comments_and_blank_lines() {
         let tokens = Lexer::tokenize("\n # comment\nWHEN close > 10\nBUY 1").unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::When);
+    }
+
+    #[test]
+    fn skips_comments() {
+        let tokens = Lexer::tokenize("# this is a comment\nWHEN close > 100\nBUY 1").unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::When);
+    }
+
+    #[test]
+    fn skips_blank_lines() {
+        let tokens = Lexer::tokenize("\n\nWHEN close > 100\nBUY 1").unwrap();
         assert_eq!(tokens[0].kind, TokenKind::When);
     }
 
@@ -301,5 +344,24 @@ BUY 10
         let tokens = Lexer::tokenize("WHEN close > 10.5\nBUY 1").unwrap();
         assert!(tokens.iter().any(|token| token.kind == TokenKind::Number(10.5)));
         assert!(tokens.iter().any(|token| token.kind == TokenKind::Integer(1)));
+    }
+
+    #[test]
+    fn integer_vs_float() {
+        let tokens = Lexer::tokenize("WHEN close > 105.5\nBUY 1").unwrap();
+        assert!(tokens
+            .iter()
+            .any(|token| matches!(token.kind, TokenKind::Number(_))));
+    }
+
+    #[test]
+    fn unknown_character_produces_lex_error() {
+        assert!(Lexer::tokenize("WHEN close @ 100\nBUY 1").is_err());
+    }
+
+    #[test]
+    fn cross_above_tokenizes_correctly() {
+        let tokens = Lexer::tokenize("WHEN cross_above(ema(20), ema(50))\nBUY 10").unwrap();
+        assert!(tokens.iter().any(|token| token.kind == TokenKind::CrossAbove));
     }
 }

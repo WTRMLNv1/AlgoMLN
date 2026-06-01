@@ -268,6 +268,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn buy_updates_position() {
+        let broker = PaperBroker::new("NIFTY".to_string(), 100_000.0);
+        broker
+            .execute(order(OrderSide::Buy, 10, 500.0))
+            .await
+            .unwrap();
+        let position = broker.get_position("NIFTY").unwrap();
+        assert_eq!(position.quantity, 10);
+        assert_eq!(position.avg_entry_price, 500.0);
+    }
+
+    #[tokio::test]
     async fn buy_updates_average_entry_price() {
         let broker = PaperBroker::new("NIFTY".to_string(), 10_000.0);
         broker.execute(order(OrderSide::Buy, 1, 100.0)).await.unwrap();
@@ -278,6 +290,21 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn two_buys_average_entry_price() {
+        let broker = PaperBroker::new("NIFTY".to_string(), 100_000.0);
+        broker
+            .execute(order(OrderSide::Buy, 10, 500.0))
+            .await
+            .unwrap();
+        broker
+            .execute(order(OrderSide::Buy, 10, 600.0))
+            .await
+            .unwrap();
+        let position = broker.get_position("NIFTY").unwrap();
+        assert_eq!(position.avg_entry_price, 550.0);
+    }
+
+    #[tokio::test]
     async fn sell_credits_cash_and_records_pnl() {
         let broker = PaperBroker::new("NIFTY".to_string(), 10_000.0);
         broker.execute(order(OrderSide::Buy, 2, 100.0)).await.unwrap();
@@ -285,6 +312,22 @@ mod tests {
         let state = broker.get_state();
         assert_eq!(state.cash, 9_925.0);
         assert_eq!(state.total_realized_pnl, 25.0);
+    }
+
+    #[tokio::test]
+    async fn sell_credits_cash_and_calculates_pnl() {
+        let broker = PaperBroker::new("NIFTY".to_string(), 100_000.0);
+        broker
+            .execute(order(OrderSide::Buy, 10, 500.0))
+            .await
+            .unwrap();
+        broker
+            .execute(order(OrderSide::Sell, 10, 600.0))
+            .await
+            .unwrap();
+        let state = broker.get_state();
+        assert_eq!(state.cash, 101_000.0);
+        assert_eq!(state.total_realized_pnl, 1_000.0);
     }
 
     #[tokio::test]
@@ -302,6 +345,16 @@ mod tests {
         let broker = PaperBroker::new("NIFTY".to_string(), 50.0);
         let err = broker
             .execute(order(OrderSide::Buy, 1, 100.0))
+            .await
+            .unwrap_err();
+        assert!(matches!(err.kind, ExecutionErrorKind::InsufficientFunds));
+    }
+
+    #[tokio::test]
+    async fn buy_fails_insufficient_funds() {
+        let broker = PaperBroker::new("NIFTY".to_string(), 100_000.0);
+        let err = broker
+            .execute(order(OrderSide::Buy, 1_000, 200.0))
             .await
             .unwrap_err();
         assert!(matches!(err.kind, ExecutionErrorKind::InsufficientFunds));

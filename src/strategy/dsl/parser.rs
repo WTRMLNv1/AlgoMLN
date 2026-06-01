@@ -351,8 +351,26 @@ BUY 10
     }
 
     #[test]
+    fn parses_simple_rsi_rule() {
+        let strategy = parse("WHEN rsi(14) < 30\nBUY 5");
+        assert_eq!(strategy.rules.len(), 1);
+        assert_eq!(strategy.rules[0].id, "rule_0");
+        assert!(matches!(
+            strategy.rules[0].action,
+            ActionNode::Buy { quantity: 5 }
+        ));
+    }
+
+    #[test]
     fn assigns_rule_ids_in_order() {
         let strategy = parse("WHEN close > 10\nBUY 1\nWHEN close < 5\nSELL 1");
+        assert_eq!(strategy.rules[0].id, "rule_0");
+        assert_eq!(strategy.rules[1].id, "rule_1");
+    }
+
+    #[test]
+    fn assigns_sequential_rule_ids() {
+        let strategy = parse("WHEN rsi(14) < 30\nBUY 5\n\nWHEN rsi(14) > 70\nSELL ALL");
         assert_eq!(strategy.rules[0].id, "rule_0");
         assert_eq!(strategy.rules[1].id, "rule_1");
     }
@@ -362,6 +380,18 @@ BUY 10
         let tokens = Lexer::tokenize("WHEN close > 10").unwrap();
         let err = Parser::new(tokens).parse().unwrap_err();
         assert!(err.message.contains("action"));
+    }
+
+    #[test]
+    fn parse_error_on_missing_action() {
+        let tokens = Lexer::tokenize("WHEN rsi(14) < 30").unwrap();
+        assert!(Parser::new(tokens).parse().is_err());
+    }
+
+    #[test]
+    fn parse_error_on_incomplete_comparison() {
+        let tokens = Lexer::tokenize("WHEN rsi(14) <\nBUY 5").unwrap();
+        assert!(Parser::new(tokens).parse().is_err());
     }
 
     #[test]
@@ -381,8 +411,23 @@ BUY 10
     }
 
     #[test]
+    fn parses_and_condition() {
+        let strategy = parse("WHEN ema(9) > ema(21) AND rsi(14) < 60\nBUY 5");
+        assert!(matches!(
+            strategy.rules[0].condition,
+            ConditionNode::And(_, _)
+        ));
+    }
+
+    #[test]
     fn parses_not_condition() {
         let strategy = parse("WHEN NOT (in_position())\nBUY 1");
+        assert!(matches!(strategy.rules[0].condition, ConditionNode::Not(_)));
+    }
+
+    #[test]
+    fn parses_not_wrapping_comparison() {
+        let strategy = parse("WHEN NOT (rsi(14) > 70)\nBUY 5");
         assert!(matches!(strategy.rules[0].condition, ConditionNode::Not(_)));
     }
 
@@ -390,5 +435,43 @@ BUY 10
     fn parses_sell_all_distinctly() {
         let strategy = parse("WHEN close > 10\nSELL ALL");
         assert!(matches!(strategy.rules[0].action, ActionNode::SellAll));
+    }
+
+    #[test]
+    fn sell_all_is_sell_all_not_sell_quantity() {
+        let strategy = parse("WHEN close > 100\nSELL ALL");
+        assert!(matches!(strategy.rules[0].action, ActionNode::SellAll));
+    }
+
+    #[test]
+    fn parses_cross_above() {
+        let strategy = parse("WHEN cross_above(ema(20), ema(50))\nBUY 10");
+        assert!(matches!(
+            strategy.rules[0].condition,
+            ConditionNode::CrossAbove { .. }
+        ));
+    }
+
+    #[test]
+    fn deterministic_ids_across_reparses() {
+        let source = "WHEN rsi(14) < 30\nBUY 5";
+        let first = parse(source);
+        let second = parse(source);
+        assert_eq!(first.rules[0].id, second.rules[0].id);
+    }
+
+    #[test]
+    fn print_ast_for_inspection() {
+        let tokens = Lexer::tokenize("WHEN rsi(14) < 30\nBUY 5").unwrap();
+        let strategy = Parser::new(tokens).parse().unwrap();
+        println!("{:#?}", strategy);
+    }
+
+    #[test]
+    fn print_parse_error_for_inspection() {
+        let tokens = Lexer::tokenize("WHEN rsi(14) <\nBUY 5").unwrap();
+        let result = Parser::new(tokens).parse();
+        println!("{:#?}", result);
+        assert!(result.is_err());
     }
 }

@@ -174,6 +174,12 @@ mod tests {
     }
 
     #[test]
+    fn valid_strategy_has_no_errors() {
+        let errors = AstValidator::validate(&strategy(vec![make_rsi_rule(14, 5)]));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
     fn rejects_zero_indicator_period() {
         let errors = AstValidator::validate(&strategy(vec![rule(
             "rule_0",
@@ -193,6 +199,14 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_period() {
+        let errors = AstValidator::validate(&strategy(vec![make_rsi_rule(0, 5)]));
+        assert!(errors
+            .iter()
+            .any(|err| matches!(err.kind, ValidationErrorKind::InvalidPeriod { .. })));
+    }
+
+    #[test]
     fn rejects_zero_quantity() {
         let errors = AstValidator::validate(&strategy(vec![rule(
             "rule_0",
@@ -205,12 +219,38 @@ mod tests {
     }
 
     #[test]
+    fn rejects_zero_quantity_from_rsi_rule() {
+        let errors = AstValidator::validate(&strategy(vec![make_rsi_rule(14, 0)]));
+        assert!(errors
+            .iter()
+            .any(|err| matches!(err.kind, ValidationErrorKind::InvalidQuantity)));
+    }
+
+    #[test]
     fn rejects_cross_with_literal() {
         let errors = AstValidator::validate(&strategy(vec![rule(
             "rule_0",
             ConditionNode::CrossAbove {
                 fast: ExprNode::Literal(30.0),
                 slow: ExprNode::PriceField(PriceField::Close),
+            },
+            ActionNode::Buy { quantity: 1 },
+        )]));
+        assert!(errors
+            .iter()
+            .any(|err| matches!(err.kind, ValidationErrorKind::CrossWithLiteral)));
+    }
+
+    #[test]
+    fn rejects_cross_with_literal_operand() {
+        let errors = AstValidator::validate(&strategy(vec![rule(
+            "rule_0",
+            ConditionNode::CrossAbove {
+                fast: ExprNode::Literal(30.0),
+                slow: ExprNode::Indicator(IndicatorCall {
+                    kind: IndicatorKind::Ema,
+                    period: 20,
+                }),
             },
             ActionNode::Buy { quantity: 1 },
         )]));
@@ -247,6 +287,27 @@ mod tests {
             ),
         ]));
         assert!(errors.len() >= 4);
+    }
+
+    #[test]
+    fn collects_all_errors_not_just_first() {
+        let errors = AstValidator::validate(&strategy(vec![make_rsi_rule(0, 0)]));
+        assert!(errors.len() >= 2);
+    }
+
+    fn make_rsi_rule(period: usize, quantity: usize) -> RuleNode {
+        rule(
+            "rule_0",
+            ConditionNode::Comparison {
+                left: ExprNode::Indicator(IndicatorCall {
+                    kind: IndicatorKind::Rsi,
+                    period,
+                }),
+                op: CompareOp::Lt,
+                right: ExprNode::Literal(30.0),
+            },
+            ActionNode::Buy { quantity },
+        )
     }
 
     fn price_condition() -> ConditionNode {
